@@ -324,7 +324,7 @@ def readCamerasFromTransforms(path, transformsfile, add_mask, add_depth, center,
     test_cam_infos = sorted(test_cam_infos, key= lambda x : x.image_path)
     return cam_infos, test_cam_infos
 
-def readColmapSceneInfo(path, eval, images, depths, masks, add_mask, add_depth, llffhold=32):
+def readColmapSceneInfo(path, eval, images, depths, masks, add_mask, add_depth, llffhold=32, ply_path_override=None):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -426,7 +426,10 @@ def readColmapSceneInfo(path, eval, images, depths, masks, add_mask, add_depth, 
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
-    if "3dovs" in path or "lerf_ovs" in path:
+    if ply_path_override and os.path.exists(ply_path_override):
+        ply_path = ply_path_override
+        print(f"Using preprocessed labeled PLY: {ply_path}")
+    elif "3dovs" in path or "lerf_ovs" in path:
         ply_path = os.path.join(path, "sparse/0/points3D_deva.ply")
     elif "scannet" in path:
         ply_path = os.path.join(path, "points3D.ply")

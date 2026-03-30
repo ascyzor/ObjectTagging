@@ -69,9 +69,18 @@ def storePly(path, xyz, rgb, label):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='Visualize PLY file with colored labels')
+    parser.add_argument('ply_path', type=str, help='Path to input PLY file')
+    parser.add_argument('--output', type=str, default=None, help='Path to output PLY file')
+    args = parser.parse_args()
 
-    ply_path = "datasets/lerf_mask/figurines/sparse/0/points3D_prob.ply"
-    output_ply_path = os.path.join(os.path.dirname(ply_path), "points3D_prob_color.ply")
+    ply_path = args.ply_path
+    if args.output:
+        output_ply_path = args.output
+    else:
+        output_ply_path = os.path.join(os.path.dirname(ply_path), "points3D_prob_color.ply")
+    
     # Read point cloud data
     pcd = fetchPly(ply_path)
 

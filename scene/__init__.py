@@ -62,8 +62,16 @@ class Scene:
             )
         elif args.data_format == 'colmap':
             print("Use Colmap data set!")
+            # Prefer the labeled PLY produced by ply_preprocessing.py, if present
+            _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _scene_name   = os.path.basename(os.path.normpath(args.source_path))
+            _labeled_ply  = os.path.join(_project_root, "outputs",
+                                         args.dataset_name, _scene_name,
+                                         "points3D_corr.ply")
             scene_info = sceneLoadTypeCallbacks["Colmap"](
-                args.source_path, args.eval, args.images, args.depths, args.masks, args.add_mask, args.add_depth, args.llffhold
+                args.source_path, args.eval, args.images, args.depths, args.masks,
+                args.add_mask, args.add_depth, args.llffhold,
+                ply_path_override=_labeled_ply
             )
         elif args.data_format == 'city':
             print("Use City data set!")
@@ -155,6 +163,7 @@ class Scene:
             print("Neural Gaussians are affected by viewpoint.")
         else:
             self.gaussians.save_explicit(os.path.join(point_cloud_path, "point_cloud_explicit.ply"))
+            self.gaussians.save_final_ply(os.path.join(point_cloud_path, "point_cloud_final.ply"))
             
     def getTrainCameras(self):
         all_cams = []   

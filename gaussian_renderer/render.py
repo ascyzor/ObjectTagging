@@ -52,7 +52,7 @@ def render(viewpoint_camera, pc, pipe, bg_color, visible_mask=None, training=Tru
             packed=False,
             sh_degree=sh_degree,
             render_mode=pc.render_mode,
-            features=semantics.detach()
+            features=semantics.detach().unsqueeze(0)  # [N,F] → [1,N,F] (camera batch dim)
         )
     elif pc.gs_attr == "2D":
         (render_colors, 
@@ -78,7 +78,7 @@ def render(viewpoint_camera, pc, pipe, bg_color, visible_mask=None, training=Tru
             packed=False,
             sh_degree=sh_degree,
             render_mode=pc.render_mode,
-            features=semantics.detach()
+            features=semantics.detach().unsqueeze(0)  # [N,F] → [1,N,F] (camera batch dim)
         )
     else:
         raise ValueError(f"Unknown gs_attr: {pc.gs_attr}")

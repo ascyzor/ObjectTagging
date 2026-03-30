@@ -564,7 +564,8 @@ if __name__ == "__main__":
 
     # enable logging
     cur_time = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    lp.model_path = os.path.join("outputs", lp.dataset_name, lp.exp_name, cur_time)
+    _scene_name = os.path.basename(os.path.normpath(lp.source_path))
+    lp.model_path = os.path.join("outputs", lp.dataset_name, _scene_name, cur_time)
     os.makedirs(lp.model_path, exist_ok=True)
     shutil.copy(args.config, os.path.join(lp.model_path, "config.yaml"))
 

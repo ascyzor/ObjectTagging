@@ -607,8 +607,7 @@ class GaussianModel(BasicModel):
     def save_explicit(self, path):
     
         def construct_list_of_attributes():
-            l = ['x', 'y', 'z']
-            
+            l = ['x', 'y', 'z', 'nx', 'ny', 'nz']  # normals required by Supersplat/standard 3DGS viewers
             # All channels except the 3 DC
             for i in range(3):
                 l.append('f_dc_{}'.format(i))
@@ -680,20 +679,155 @@ class GaussianModel(BasicModel):
         xyz = repeat_anchor + offsets 
         
         xyz = xyz.detach().cpu().numpy()
+        normals = np.zeros_like(xyz)  # standard 3DGS PLY requires nx/ny/nz
         f_dc = features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        opacities = opacity.detach().cpu().numpy()
-        scale = scaling.detach().cpu().numpy()
+        # Standard 3DGS stores opacity as logit(p) and scale as log(s)
+        opacities = np.log(
+            opacity.detach().cpu().numpy().clip(1e-6, 1 - 1e-6)
+            / (1 - opacity.detach().cpu().numpy().clip(1e-6, 1 - 1e-6))
+        )
+        scale = np.log(scaling.detach().cpu().numpy().clip(1e-10))
         rotation = rot.detach().cpu().numpy()
 
         dtype_full = [(attribute, 'f4') for attribute in construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
     
+    def save_final_ply(self, path, opacity_threshold=0.05):
+        """
+        Save a filtered version of the explicit 3DGS PLY that removes all
+        Gaussians whose opacity (sigmoid of stored logit) is below
+        *opacity_threshold* (default 0.05).  Also writes the per-Gaussian
+        'label' (uint8) field so that downstream tools such as
+        analyze_ply_segments.py can use object IDs.
+        """
+
+        def construct_list_of_attributes():
+            l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+            for i in range(3):
+                l.append('f_dc_{}'.format(i))
+            for i in range(3 * (self.max_sh_degree + 1) ** 2 - 3):
+                l.append('f_rest_{}'.format(i))
+            l.append('opacity')
+            for i in range(3):
+                l.append('scale_{}'.format(i))
+            for i in range(4):
+                l.append('rot_{}'.format(i))
+            l.append('label')
+            return l
+
+        anchor       = self.get_anchor          # [N, 3]
+        feat         = self.get_anchor_feat     # [N, feat_dim]
+        grid_offsets = self.get_offset          # [N, k, 3]
+        grid_scaling = self.get_scaling         # [N, 6]
+
+        # ── opacity ──────────────────────────────────────────────────────────
+        neural_opacity = self.get_opacity_mlp(feat)          # [N, k]
+        neural_opacity = neural_opacity.reshape([-1, 1])     # [N*k, 1]
+        mask = (neural_opacity >= opacity_threshold).view(-1)
+        opacity = neural_opacity[mask]                        # [M, 1]
+
+        # ── colour ───────────────────────────────────────────────────────────
+        if self.appearance_dim > 0:
+            camera_indicies = torch.zeros_like(feat[:, 0], dtype=torch.long, device=feat.device)
+            appearance = self.get_appearance(camera_indicies)
+            color = self.get_color_mlp(torch.cat([feat, appearance], dim=1))
+        else:
+            color = self.get_color_mlp(feat)
+
+        if self.color_attr == "RGB":
+            color = color.reshape([anchor.shape[0] * self.n_offsets, 3])
+        else:
+            color = color.reshape([anchor.shape[0] * self.n_offsets, -1])
+        color_dim = color.shape[1]
+
+        # ── covariance ───────────────────────────────────────────────────────
+        scale_rot = self.get_cov_mlp(feat)
+        scale_rot = scale_rot.reshape([anchor.shape[0] * self.n_offsets, 7])
+
+        # ── offsets ──────────────────────────────────────────────────────────
+        offsets = grid_offsets.view([-1, 3])
+
+        # ── labels (per-anchor → per-offset) ─────────────────────────────────
+        # self.label_ids: [N, 1] → expand to [N*k] then apply mask
+        label_repeated = repeat(self.label_ids.view(-1), 'n -> (n k)', k=self.n_offsets)  # [N*k]
+
+        # ── parallel masking ─────────────────────────────────────────────────
+        concatenated = torch.cat([grid_scaling, anchor], dim=-1)
+        concatenated_repeated = repeat(concatenated, 'n (c) -> (n k) (c)', k=self.n_offsets)
+        concatenated_all = torch.cat([concatenated_repeated, color, scale_rot, offsets], dim=-1)
+        masked = concatenated_all[mask]
+        label_masked = label_repeated[mask].detach().cpu().numpy().astype(np.uint8)  # [M]
+
+        scaling_repeat, repeat_anchor, color, scale_rot, offsets = masked.split(
+            [6, 3, color_dim, 7, 3], dim=-1
+        )
+
+        # ── post-process ─────────────────────────────────────────────────────
+        scaling = scaling_repeat[:, 3:] * torch.sigmoid(scale_rot[:, :3])
+        rot     = self.rotation_activation(scale_rot[:, 3:7])
+
+        color         = color.view([color.shape[0], -1, 3])
+        features_dc   = color[:, 0:1, :]
+        features_rest = color[:, 1:,  :]
+
+        offsets = offsets * scaling_repeat[:, :3]
+        xyz     = repeat_anchor + offsets
+
+        xyz      = xyz.detach().cpu().numpy()
+        normals  = np.zeros_like(xyz)
+        f_dc     = features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest   = features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = np.log(
+            opacity.detach().cpu().numpy().clip(1e-6, 1 - 1e-6)
+            / (1 - opacity.detach().cpu().numpy().clip(1e-6, 1 - 1e-6))
+        )
+        scale    = np.log(scaling.detach().cpu().numpy().clip(1e-10))
+        rotation = rot.detach().cpu().numpy()
+
+        # ── write PLY ────────────────────────────────────────────────────────
+        attr_names = construct_list_of_attributes()
+        dtype_full = (
+            [(a, 'f4') for a in attr_names if a != 'label']
+            + [('label', 'u1')]
+        )
+        # Reorder to match construct_list_of_attributes order
+        dtype_full = [(a, 'u1' if a == 'label' else 'f4') for a in attr_names]
+
+        elements   = np.empty(xyz.shape[0], dtype=dtype_full)
+        float_attrs = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        float_field_names = [a for a in attr_names if a != 'label']
+        for i, name in enumerate(float_field_names):
+            elements[name] = float_attrs[:, i]
+        elements['label'] = label_masked
+
+        mkdir_p(os.path.dirname(path))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+
+        # ── web PLY (same data, no label field) ──────────────────────────────
+        web_path = path.replace(".ply", "_web.ply")
+        dtype_web = [(a, 'f4') for a in attr_names if a != 'label']
+        elements_web = np.empty(xyz.shape[0], dtype=dtype_web)
+        for i, name in enumerate(float_field_names):
+            elements_web[name] = float_attrs[:, i]
+        el_web = PlyElement.describe(elements_web, 'vertex')
+        PlyData([el_web]).write(web_path)
+
+        n_in  = mask.shape[0]
+        n_out = int(mask.sum())
+        print(
+            f"  Saved final PLY → {path}  "
+            f"({n_out:,} / {n_in:,} Gaussians kept, "
+            f"opacity ≥ {opacity_threshold})"
+        )
+        print(f"  Saved web PLY   → {web_path}  (no label field)")
+
     def load_explicit(self, path):
         plydata = PlyData.read(path)
 

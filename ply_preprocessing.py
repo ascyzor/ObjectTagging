@@ -8,17 +8,25 @@ Author: Ruijie Zhu
 License: MIT
 """
 
+import os
 import struct
+import argparse
 import numpy as np
 import cv2
 from collections import Counter, defaultdict
 from plyfile import PlyData, PlyElement
-from scene.colmap_loader import (
-    read_intrinsics_binary, read_extrinsics_binary, read_next_bytes, 
-    read_intrinsics_text, read_extrinsics_text
+import importlib.util as _ilu
+_colmap_spec = _ilu.spec_from_file_location(
+    "colmap_loader",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "colmap_loader.py")
 )
-import argparse
-import os
+_colmap_mod = _ilu.module_from_spec(_colmap_spec)
+_colmap_spec.loader.exec_module(_colmap_mod)
+read_intrinsics_binary = _colmap_mod.read_intrinsics_binary
+read_extrinsics_binary = _colmap_mod.read_extrinsics_binary
+read_next_bytes        = _colmap_mod.read_next_bytes
+read_intrinsics_text   = _colmap_mod.read_intrinsics_text
+read_extrinsics_text   = _colmap_mod.read_extrinsics_text
 
 def read_points3D_binary(path_to_model_file):
     """
@@ -555,14 +563,26 @@ def corr_voting(images, points3D, label_image_dir, converter, output_ply_path):
         converter: ID2RGBConverter instance
         output_ply_path: Output PLY file path
     """
+    # Pre-load all label images into a cache keyed by image_id
+    print("Loading label images...")
+    label_cache = {}
+    for image_id, image_data in images.items():
+        _, _, _, _, image_name, _, _ = image_data
+        label_image_file = os.path.join(label_image_dir, image_name)
+        label_image_file = label_image_file.replace('.jpg', '.png').replace('.JPG', '.png')
+        img = cv2.imread(label_image_file, -1)
+        if img is not None:
+            label_cache[image_id] = img
+    print(f"Loaded {len(label_cache)}/{len(images)} label images.")
+
     all_colors = []
     all_labels = []
     for point3D_id, point_data in points3D.items():
         x, y, z, r, g, b, error, track = point_data
-        votes = []
 
         for image_id, point2D_idx in track:
-            if image_id not in images:
+            label_image = label_cache.get(image_id)
+            if label_image is None:
                 continue
             _, _, _, _, image_name, xys, _ = images[image_id]
             if point2D_idx >= len(xys):
@@ -571,10 +591,7 @@ def corr_voting(images, points3D, label_image_dir, converter, output_ply_path):
             u = int(round(u))
             v = int(round(v))
 
-            label_image_file = os.path.join(label_image_dir, image_name)
-            label_image_file = label_image_file.replace('.jpg', '.png') if label_image_file.endswith('.jpg') else label_image_file.replace('.JPG', '.png')
-            label_image = cv2.imread(label_image_file, -1)
-            if label_image is None or v < 0 or v >= label_image.shape[0] or u < 0 or u >= label_image.shape[1]:
+            if v < 0 or v >= label_image.shape[0] or u < 0 or u >= label_image.shape[1]:
                 continue
 
             obj_id = label_image[v, u]
@@ -598,51 +615,58 @@ def corr_voting(images, points3D, label_image_dir, converter, output_ply_path):
 
 def main(args):
     """Main processing function.
-    
+
     Args:
-        args: Command line arguments containing dataset_path, algorithm, and output_ply_name
+        args: Command line arguments containing dataset, scene, algorithm, and output_ply_name
     """
-    dataset_path = args.dataset_path
+    project_folder = os.path.dirname(os.path.abspath(__file__))
+    data_root = os.path.expanduser(args.data_root)
 
-    for dataset_folder in os.listdir(dataset_path):
-        print(f"Processing {dataset_folder}...")
-        label_image_dir = os.path.join(dataset_path, dataset_folder, 'object_mask')
-        color_image_dir = os.path.join(dataset_path, dataset_folder, 'color_mask')
-        # Check if ‘color_mask’ directory exists, if not set to None
-        if not os.path.isdir(color_image_dir):
-            color_image_dir = None
-        output_ply_path = os.path.join(dataset_path, dataset_folder, 'sparse/0/' + args.output_ply_name)
+    scene_input_path = os.path.join(data_root, args.dataset, args.scene)
+    label_image_dir = os.path.join(project_folder, '2Dmask', args.dataset, args.scene, 'annotations', 'gray_mask')
+    color_image_dir = os.path.join(scene_input_path, 'color_mask')
+    # Check if 'color_mask' directory exists, if not set to None
+    if not os.path.isdir(color_image_dir):
+        color_image_dir = None
+    output_dir = os.path.join(project_folder, 'outputs', args.dataset, args.scene)
+    os.makedirs(output_dir, exist_ok=True)
+    output_ply_path = os.path.join(output_dir, args.output_ply_name)
 
-        # Try to load binary COLMAP files first, then fall back to text files
-        try:
-            camera_file = os.path.join(dataset_path, dataset_folder, 'sparse/0/cameras.bin')
-            image_file = os.path.join(dataset_path, dataset_folder, 'sparse/0/images.bin')
-            points3D_file = os.path.join(dataset_path, dataset_folder,'sparse/0/points3D.bin')
-            cameras = read_intrinsics_binary(camera_file)
-            images = read_extrinsics_binary(image_file)
-            points3D = read_points3D_binary(points3D_file)
-        except:
-            camera_file = os.path.join(dataset_path, dataset_folder, 'colmap/cameras_undistorted.txt')
-            image_file = os.path.join(dataset_path, dataset_folder, 'colmap/images.txt')
-            points3D_file = os.path.join(dataset_path, dataset_folder,'colmap/points3D.txt')            
-            cameras = read_intrinsics_text(camera_file)
-            images = read_extrinsics_text(image_file)
-            points3D = read_points3D_text(points3D_file)
+    print(f"Processing {args.dataset}/{args.scene}...")
+    print(f"  Input COLMAP data : {scene_input_path}")
+    print(f"  Gray mask dir     : {label_image_dir}")
+    print(f"  Output PLY        : {output_ply_path}")
 
-        converter = ID2RGBConverter()
+    # Try to load binary COLMAP files first, then fall back to text files
+    try:
+        camera_file = os.path.join(scene_input_path, 'sparse/0/cameras.bin')
+        image_file = os.path.join(scene_input_path, 'sparse/0/images.bin')
+        points3D_file = os.path.join(scene_input_path, 'sparse/0/points3D.bin')
+        cameras = read_intrinsics_binary(camera_file)
+        images = read_extrinsics_binary(image_file)
+        points3D = read_points3D_binary(points3D_file)
+    except:
+        camera_file = os.path.join(scene_input_path, 'colmap/cameras_undistorted.txt')
+        image_file = os.path.join(scene_input_path, 'colmap/images.txt')
+        points3D_file = os.path.join(scene_input_path, 'colmap/points3D.txt')
+        cameras = read_intrinsics_text(camera_file)
+        images = read_extrinsics_text(image_file)
+        points3D = read_points3D_text(points3D_file)
 
-        # Apply selected voting algorithm
-        if args.algorithm == 'majority':
-            print("Using majority voting...")
-            majority_voting(images, points3D, cameras, label_image_dir, color_image_dir, converter, output_ply_path)
-        elif args.algorithm == 'prob':
-            print("Using probability-based voting...")
-            prob_voting(images, points3D, cameras, label_image_dir, color_image_dir, converter, output_ply_path)
-        elif args.algorithm == 'corr':
-            print("Using correlation-based voting...")
-            corr_voting(images, points3D, label_image_dir, converter, output_ply_path)
-        else:
-            raise ValueError("Unknown algorithm. Choose from 'majority', 'prob', or 'corr'.")
+    converter = ID2RGBConverter()
+
+    # Apply selected voting algorithm
+    if args.algorithm == 'majority':
+        print("Using majority voting...")
+        majority_voting(images, points3D, cameras, label_image_dir, color_image_dir, converter, output_ply_path)
+    elif args.algorithm == 'prob':
+        print("Using probability-based voting...")
+        prob_voting(images, points3D, cameras, label_image_dir, color_image_dir, converter, output_ply_path)
+    elif args.algorithm == 'corr':
+        print("Using correlation-based voting...")
+        corr_voting(images, points3D, label_image_dir, converter, output_ply_path)
+    else:
+        raise ValueError("Unknown algorithm. Choose from 'majority', 'prob', or 'corr'.")
 
 
 if __name__ == "__main__":
@@ -657,22 +681,34 @@ if __name__ == "__main__":
         description="Preprocess 3D point clouds with semantic labels using various voting strategies."
     )
     parser.add_argument(
-        '--dataset_path', 
-        type=str, 
-        default='datasets/lerf_mask', 
-        help='Path to the dataset directory'
+        '--dataset',
+        type=str,
+        required=True,
+        help='Dataset name (e.g. lerf_mask). Input data is read from ~/data/<dataset>/<scene>.'
     )
     parser.add_argument(
-        '--algorithm', 
-        type=str, 
-        default='corr', 
-        choices=['majority', 'prob', 'corr'], 
+        '--scene',
+        type=str,
+        required=True,
+        help='Scene name (e.g. figurines). Input data is read from ~/data/<dataset>/<scene>.'
+    )
+    parser.add_argument(
+        '--data_root',
+        type=str,
+        default='~/data',
+        help='Root directory for input data (default: ~/data)'
+    )
+    parser.add_argument(
+        '--algorithm',
+        type=str,
+        default='corr',
+        choices=['majority', 'prob', 'corr'],
         help='Voting algorithm to use'
     )
     parser.add_argument(
-        '--output_ply_name', 
-        type=str, 
-        default='points3D_corr.ply', 
+        '--output_ply_name',
+        type=str,
+        default='points3D_corr.ply',
         help='Output PLY file name'
     )
     args = parser.parse_args()
