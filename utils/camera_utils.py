@@ -10,6 +10,7 @@
 #
 
 import cv2
+import os
 import torch
 from scene.cameras import Camera
 import numpy as np
@@ -44,13 +45,22 @@ def loadCam(args, id, cam_info, resolution_scale, background):
 
         scale = float(global_down) * float(resolution_scale)
         resolution = (int(orig_w / scale), int(orig_h / scale))
-        
-    
-    
+
+    # Build the path to the gray_mask inside the project's 2Dmask folder.
+    # Structure: <project_root>/2Dmask/<dataset_name>/<scene_name>/annotations/gray_mask/
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _scene_name   = os.path.basename(os.path.normpath(args.source_path))
+    mask_dir = os.path.join(
+        _project_root, "2Dmask",
+        args.dataset_name, _scene_name,
+        "annotations", "gray_mask"
+    )
+
     return Camera(resolution, colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, Cx=cam_info.CX, Cy=cam_info.CY, 
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, resolution_scale=resolution_scale, image=cam_info.image, 
                   alpha_mask=cam_info.mask, image_name=cam_info.image_name, image_path=cam_info.image_path, 
-                  uid=id, data_device=args.data_device,data_format=args.data_format, gt_depth=cam_info.depth, depth_params=cam_info.depth_params)
+                  uid=id, data_device=args.data_device, data_format=args.data_format, gt_depth=cam_info.depth,
+                  depth_params=cam_info.depth_params, mask_dir=mask_dir)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args, background):
     camera_list = []

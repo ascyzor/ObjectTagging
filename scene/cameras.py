@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import os
 import numpy as np
 import torch
 from torch import nn
@@ -22,7 +23,8 @@ class Camera(nn.Module):
     def __init__(self, resolution, colmap_id, R, T, Cx, Cy, FoVx, FoVy, image, alpha_mask, 
                  image_name, image_path, resolution_scale, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
-                 data_format='matrixcity',gt_depth=None, depth_params=None
+                 data_format='matrixcity', gt_depth=None, depth_params=None,
+                 mask_dir=None
                  ):
         super(Camera, self).__init__()
 
@@ -108,7 +110,13 @@ class Camera(nn.Module):
         elif "scannet" in image_path:
             object_mask = Image.open(image_path.replace("images", "object_mask").replace(".JPG", ".png")).convert('L')
         else:
-            object_mask = Image.open(image_path.replace("images", "object_mask").replace(".jpg", ".png")).convert('L')
+            if mask_dir is not None and os.path.isdir(mask_dir):
+                # Use gray_mask from the project's 2Dmask folder (no symlink needed)
+                mask_filename = os.path.splitext(os.path.basename(image_path))[0] + ".png"
+                object_mask = Image.open(os.path.join(mask_dir, mask_filename)).convert('L')
+            else:
+                # Legacy fallback: object_mask lives next to the images folder
+                object_mask = Image.open(image_path.replace("images", "object_mask").replace(".jpg", ".png")).convert('L')
         object_mask = np.array(object_mask.resize(resolution), dtype=np.uint8)
         self.object_mask = torch.from_numpy(object_mask)
 
