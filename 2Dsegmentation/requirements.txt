@@ -1,0 +1,29 @@
+# 2D segmentation dependencies
+# Install in a dedicated conda/venv environment separate from the main ObjectTagging env.
+#
+# Core
+torch>=2.0
+torchvision
+numpy
+Pillow
+imageio[ffmpeg]
+tqdm
+opencv-python
+pulp
+pycocotools
+supervision
+
+# CLIP (OpenAI)
+git+https://github.com/openai/CLIP.git
+
+# Segment Anything Model (SAM)
+git+https://github.com/facebookresearch/segment-anything.git
+
+# GroundingDINO (needed even for automatic mode — imported by grounding_dino.py)
+# Follow the build steps at: https://github.com/IDEA-Research/GroundingDINO
+# or install from the bundled submodule if available.
+# addict
+# timm
+# transformers
+# supervision
+# pycocotools
