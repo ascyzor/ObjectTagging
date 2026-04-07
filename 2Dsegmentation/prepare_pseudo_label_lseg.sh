@@ -64,7 +64,7 @@ dataset_name="$(basename "$(dirname "$input_path")")"
 
 output_base="${PROJECT_ROOT}/2Dmask/${dataset_name}/${scene_name}"
 annotations_dir="${output_base}/annotations"
-mask_dir_lseg="${annotations_dir}/gray_mask_lseg"
+mask_dir_lseg="${annotations_dir}/gray_mask"
 deva_lseg_tmp="${output_base}/.deva_lseg_tmp"
 deva_work_dir="${output_base}/.deva_lseg_out"
 
@@ -159,12 +159,12 @@ mkdir -p "$mask_dir_lseg" "$annotations_dir"
 
 mv "${deva_work_dir}/Annotations/"* "${mask_dir_lseg}/"
 mv "${deva_work_dir}/pred_lseg.json"      "${output_base}/pred_lseg.json"
-mv "${deva_work_dir}/id2label_lseg.json"  "${annotations_dir}/id2label_lseg.json"
+mv "${deva_work_dir}/id2label_lseg.json"  "${annotations_dir}/id2label.json"
 
 # Clean up temporary directories.
-# rm -rf "$deva_lseg_tmp" "$deva_work_dir"
+rm -rf "$deva_lseg_tmp" "$deva_work_dir"
 
 echo ""
 echo "==> LangSeg gray masks  : ${mask_dir_lseg}"
-echo "==> id2label_lseg.json  : ${annotations_dir}/id2label_lseg.json"
+echo "==> id2label.json       : ${annotations_dir}/id2label.json"
 echo "==> pred_lseg.json      : ${output_base}/pred_lseg.json"
