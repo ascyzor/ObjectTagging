@@ -1,0 +1,103 @@
+@use 'colors.scss' as *;
+
+// ── Panel positioning ────────────────────────────────────────────────────────
+#centroid-panel {
+    bottom: 60px;
+    left: 24px;
+    width: 320px;
+
+    &:not(.pcui-hidden) {
+        display: flex;
+        flex-direction: column;
+    }
+}
+
+.collapsed #centroid-panel {
+    display: none;
+}
+
+// ── Rows inside the panel ────────────────────────────────────────────────────
+.centroid-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 6px;
+    height: 32px;
+
+    & > .centroid-row-label {
+        flex-grow: 1;
+        color: $text-primary;
+    }
+
+    & > .centroid-row-toggle {
+        background-color: $bcg-dark;
+
+        &::after {
+            background-color: $clr-default;
+        }
+
+        &.pcui-boolean-input-ticked {
+            background-color: $clr-hilight;
+
+            &::after {
+                background-color: $clr-active;
+            }
+        }
+    }
+}
+
+// ── Load button ──────────────────────────────────────────────────────────────
+.centroid-load-btn {
+    width: 100%;
+    margin: 4px 6px;
+    background-color: $bcg-dark;
+    color: $clr-hilight;
+    border: 1px solid $bcg-light;
+    border-radius: 4px;
+    cursor: pointer;
+
+    &:hover {
+        background-color: $bcg-darker;
+        color: $clr-active;
+    }
+}
+
+// ── Status text ──────────────────────────────────────────────────────────────
+.centroid-status {
+    padding: 2px 8px 6px;
+    color: $text-secondary;
+    font-style: italic;
+}
+
+// ── HTML overlay labels (live in #canvas-container) ─────────────────────────
+// style.left / style.top are set in JS to the projected centroid screen position.
+// translate(-50%, -100%) centers the label horizontally and places it entirely
+// above the centroid point. The dot sits just below the text, pointing at the centroid.
+.centroid-label {
+    position: absolute;
+    pointer-events: none;
+    display: none; // hidden until JS positions it
+    transform: translate(-50%, calc(-100% - 4px));
+}
+
+.centroid-label-text {
+    display: block;
+    background: rgba(20, 20, 20, 0.82);
+    color: #ffffff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: monospace;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 102, 0, 0.7);
+}
+
+.centroid-label-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: #ff6600;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    margin: 3px auto 0;
+}

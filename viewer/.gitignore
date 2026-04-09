@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+.npmrc
+.vscode
+.cursor
+.idea
+
+# SuperSplat-specific files not needed in this fork
+.github
+renovate.json
+docs
+static/images

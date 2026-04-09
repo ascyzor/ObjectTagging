@@ -12,6 +12,8 @@ data
 tensorboard_3d
 screenshots
 *.so
+*.pth
+*.pt
 
 test_config/*scripts/*
 data/*
